@@ -4,6 +4,9 @@ namespace Uninject.Attributes
 {
     public class InjectComponentAttribute : Attribute
     {
-        
+    }
+
+    public class InjectChildComponentAttribute : Attribute
+    {
     }
 }
