@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using Uninject.Attributes;
 using Uninject.Interfaces;
@@ -12,6 +13,19 @@ namespace Uninject.MonoBehaviours
 
         public IServiceContainer Container { get; set; }
 
+        private const BindingFlags AllFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+        private delegate object Resolver(MonoBehaviour behaviour, Type type);
+
+        private static readonly Dictionary<Type, Resolver> Resolvers = new()
+        {
+            { typeof(InjectComponentAttribute), ResolveComponent },
+            { typeof(InjectComponentsAttribute), ResolveComponents },
+            { typeof(InjectChildComponentAttribute), ResolveChildComponent },
+            { typeof(InjectChildComponentsAttribute), ResolveChildComponents },
+            { typeof(InjectDependencyAttribute), (_, type) => ResolveDependency(type) }
+        };
+
         private static InjectionManager _instance;
 
         private void Awake()
@@ -21,44 +35,60 @@ namespace Uninject.MonoBehaviours
                           throw new Exception("No container provider was found.");
         }
 
+
         public static void Inject(MonoBehaviour behaviour)
         {
-            var injectComponentAttributeType = typeof(InjectComponentAttribute);
-            var injectChildComponentAttributeType = typeof(InjectChildComponentAttribute);
-            var injectDependencyAttributeType = typeof(InjectDependencyAttribute);
-            var allFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var type = behaviour.GetType();
+            foreach (var field in type.GetFields(AllFlags))
+                InjectMember(behaviour, field, field.FieldType);
+            foreach (var property in type.GetProperties(AllFlags))
+                InjectMember(behaviour, property, property.PropertyType);
+        }
 
-            foreach (var field in behaviour.GetType().GetFields(allFlags))
+        private static void InjectMember(MonoBehaviour behaviour, MemberInfo member, Type memberType)
+        {
+            foreach (var attributeType in Resolvers.Keys)
             {
-                if (field.GetCustomAttribute(injectComponentAttributeType) is InjectComponentAttribute)
-                    field.SetValue(behaviour, ResolveComponent(behaviour, field.FieldType));
-                else if (field.GetCustomAttribute(injectChildComponentAttributeType) is InjectChildComponentAttribute)
-                    field.SetValue(behaviour, ResolveChildComponent(behaviour, field.FieldType));
-                else if (field.GetCustomAttribute(injectDependencyAttributeType) is InjectDependencyAttribute)
-                    field.SetValue(behaviour, ResolveDependency(field.FieldType));
-            }
+                if (Attribute.IsDefined(member, attributeType))
+                {
+                    var value = Resolvers[attributeType](behaviour, memberType);
+                    if (member is FieldInfo field)
+                        field.SetValue(behaviour, value);
+                    else if (member is PropertyInfo property)
+                        property.SetValue(behaviour, value);
 
-            foreach (var property in behaviour.GetType().GetProperties(allFlags))
-            {
-                if (property.GetCustomAttribute(injectComponentAttributeType) is InjectComponentAttribute)
-                    property.SetValue(behaviour, ResolveComponent(behaviour, property.PropertyType));
-                else if (property.GetCustomAttribute(injectChildComponentAttributeType) is InjectChildComponentAttribute)
-                    property.SetValue(behaviour, ResolveChildComponent(behaviour, property.PropertyType));
-                else if (property.GetCustomAttribute(injectDependencyAttributeType) is InjectDependencyAttribute)
-                    property.SetValue(behaviour, ResolveDependency(property.PropertyType));
+                    break;
+                }
             }
         }
-        
+
         private static object ResolveComponent(MonoBehaviour behaviour, Type type)
         {
             return behaviour.GetComponent(type);
         }
-        
+
+        private static object ResolveComponents(MonoBehaviour behaviour, Type type)
+        {
+            if (!type.IsArray) Debug.LogError("InjectComponentsAttribute can only be used on arrays.");
+            var method = typeof(MonoBehaviour).GetMethod(nameof(MonoBehaviour.GetComponents), Array.Empty<Type>());
+            var generic = method!.MakeGenericMethod(type.GetElementType());
+            return generic.Invoke(behaviour, null);
+        }
+
         private static object ResolveChildComponent(MonoBehaviour behaviour, Type type)
         {
             return behaviour.GetComponentInChildren(type);
         }
-        
+
+        private static object ResolveChildComponents(MonoBehaviour behaviour, Type type)
+        {
+            if (!type.IsArray) Debug.LogError("InjectChildComponentsAttribute can only be used on arrays.");
+            var method =
+                typeof(MonoBehaviour).GetMethod(nameof(MonoBehaviour.GetComponentsInChildren), Array.Empty<Type>());
+            var generic = method!.MakeGenericMethod(type.GetElementType());
+            return generic.Invoke(behaviour, null);
+        }
+
         private static object ResolveDependency(Type type)
         {
             return _instance.Container.Resolve(type);
