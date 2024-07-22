@@ -1,12 +1,11 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Uninject.Attributes
 {
-    public class InjectComponentAttribute : Attribute
-    {
-    }
+    [MeansImplicitUse(ImplicitUseKindFlags.Assign)]
+    public class InjectComponentAttribute : Attribute { }
 
-    public class InjectChildComponentAttribute : Attribute
-    {
-    }
+    [MeansImplicitUse(ImplicitUseKindFlags.Assign)]
+    public class InjectChildComponentAttribute : Attribute { }
 }
